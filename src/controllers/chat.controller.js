@@ -34,7 +34,7 @@ exports.sendMessage = async (req, res) => {
 };
 
 exports.fetchMessages = async (req, res) => {
-    const { chatId } = req.params;
+    const { chatId } = req.params; // chatId comes from URL parameter
     const userId = req.user.id;
 
     try {
@@ -109,4 +109,4 @@ exports.joinChat = async (req, res) => {
     } catch (error) {
         res.status(500).json({ message: 'Error joining chat.', error: error.message });
     }
-}
+};
