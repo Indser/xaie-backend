@@ -23,7 +23,11 @@ exports.signup = async (req, res) => {
         if (error.code === 'ER_DUP_ENTRY') {
             return res.status(409).json({ message: 'Username already exists.' });
         }
-        res.status(500).json({ message: 'Server error during signup.', error: error.message || error.toString() });
+        res.status(500).json({
+            message: 'Server error during signup.',
+            error: error.message || error.toString(),
+            details: error
+        });
     }
 };
 
@@ -55,6 +59,10 @@ exports.login = async (req, res) => {
         res.json({ message: 'Login successful.', token });
     } catch (error) {
         console.error('Login error:', error);
-        res.status(500).json({ message: 'Server error during login.', error: error.message || error.toString() });
+        res.status(500).json({
+            message: 'Server error during login.',
+            error: error.message || error.toString(),
+            details: error
+        });
     }
 };
