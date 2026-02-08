@@ -16,9 +16,15 @@ const poolConfig = process.env.MYSQL_URL || process.env.DATABASE_URL ? {
     multipleStatements: true
 };
 
-const pool = process.env.MYSQL_URL || process.env.DATABASE_URL
-    ? mysql.createPool(process.env.MYSQL_URL || process.env.DATABASE_URL + '?multipleStatements=true')
-    : mysql.createPool(poolConfig);
+const pool = (() => {
+    const url = process.env.MYSQL_URL || process.env.DATABASE_URL;
+    if (url) {
+        // Correctly append query parameter regardless of existing ones
+        const separator = url.includes('?') ? '&' : '?';
+        return mysql.createPool(url + separator + 'multipleStatements=true');
+    }
+    return mysql.createPool(poolConfig);
+})();
 
 console.log('Database Config Host:', poolConfig.host || 'Using URL');
 console.log('Database Config DB:', poolConfig.database || 'Using URL');
