@@ -8,11 +8,11 @@ module.exports = (req, res, next) => {
         return res.status(401).json({ message: 'Access denied. No token provided.' });
     }
 
-    const decoded = verifyToken(token);
-    if (!decoded) {
+    try {
+        const decoded = verifyToken(token);
+        req.user = decoded;
+        next();
+    } catch (e) {
         return res.status(403).json({ message: 'Invalid or expired token.' });
     }
-
-    req.user = decoded;
-    next();
 };

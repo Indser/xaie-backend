@@ -7,7 +7,7 @@ const authMiddleware = require('../middleware/auth'); // assuming you have auth 
 router.use(authMiddleware);
 
 // Routes
-router.get('/history/:chatId', controller.fetchMessages); // fetch messages for a chat
+router.get('/:chatId', controller.fetchMessages); // fetch messages for a chat (matches Flutter expectation)
 router.post('/send', controller.sendMessage);            // send a message
 router.get('/list', controller.listChats);              // list all chats for user
 router.post('/create', controller.createChat);          // create a new chat
