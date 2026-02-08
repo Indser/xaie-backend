@@ -8,6 +8,8 @@ const authRoutes = require('./routes/auth.routes');
 const chatRoutes = require('./routes/chat.routes');
 const socketHandler = require('./sockets/chat.socket');
 
+const userRoutes = require('./routes/user.routes');
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -24,6 +26,8 @@ app.use('/auth', authRoutes);
 console.log('Auth routes registered');
 app.use('/chat', chatRoutes);
 console.log('Chat routes registered');
+app.use('/users', userRoutes);
+console.log('User routes registered');
 
 // Socket.io
 try {

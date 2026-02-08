@@ -81,6 +81,7 @@ exports.listChats = async (req, res) => {
 
 exports.createChat = async (req, res) => {
     const userId = req.user.id;
+    const { targetUserId } = req.body;
     try {
         const [chatResult] = await db.execute('INSERT INTO chats () VALUES ()');
         const chatId = chatResult.insertId;
@@ -90,7 +91,14 @@ exports.createChat = async (req, res) => {
             [chatId, userId]
         );
 
-        res.status(201).json({ message: 'Chat created.', chatId });
+        if (targetUserId) {
+            await db.execute(
+                'INSERT INTO chat_members (chat_id, user_id) VALUES (?, ?)',
+                [chatId, targetUserId]
+            );
+        }
+
+        res.status(201).json({ message: 'Chat created.', id: chatId });
     } catch (error) {
         res.status(500).json({ message: 'Error creating chat.', error: error.message });
     }
@@ -108,5 +116,71 @@ exports.joinChat = async (req, res) => {
         res.json({ message: 'Joined chat.' });
     } catch (error) {
         res.status(500).json({ message: 'Error joining chat.', error: error.message });
+    }
+};
+
+exports.deleteMessage = async (req, res) => {
+    const { messageId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        const [result] = await db.execute(
+            'DELETE FROM messages WHERE id = ? AND sender_id = ?',
+            [messageId, userId]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Message not found or unauthorized' });
+        }
+
+        res.json({ message: 'Message deleted' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting message', error: error.message });
+    }
+};
+
+exports.getChatDetails = async (req, res) => {
+    const { chatId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        const [members] = await db.execute(
+            `SELECT u.username, u.id 
+             FROM chat_members cm 
+             JOIN users u ON cm.user_id = u.id 
+             WHERE cm.chat_id = ? AND cm.user_id != ?`,
+            [chatId, userId]
+        );
+
+        if (members.length === 0) {
+            // Might be a group or self-chat
+            return res.json({ username: 'Chat Room', isGroup: true });
+        }
+
+        res.json({
+            username: members[0].username,
+            id: members[0].id,
+            isGroup: members.length > 1
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching chat details', error: error.message });
+    }
+};
+
+exports.reactToMessage = async (req, res) => {
+    const { messageId } = req.params;
+    const { reaction } = req.body;
+    const userId = req.user.id;
+
+    if (!reaction) return res.status(400).json({ message: 'Reaction is required' });
+
+    try {
+        await db.execute(
+            'INSERT INTO message_reactions (message_id, user_id, reaction) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE reaction = ?',
+            [messageId, userId, reaction, reaction]
+        );
+        res.json({ message: 'Reaction added' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error reacting to message', error: error.message });
     }
 };

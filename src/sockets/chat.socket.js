@@ -1,4 +1,5 @@
 const { verifyToken } = require('../utils/jwt');
+const db = require('../config/db');
 
 module.exports = (io) => {
     io.on('connection', (socket) => {
@@ -19,18 +20,31 @@ module.exports = (io) => {
             console.log(`Socket ${socket.id} joined room ${chatId}`);
         });
 
-        socket.on('send_message', (data) => {
+        socket.on('send_message', async (data) => {
             const { chatId, message } = data;
             console.log(`Socket message [Room ${chatId}]: ${message}`);
 
-            // In a real app, you would save to DB here as well
-            io.to(chatId).emit('receive_message', {
-                chatId,
-                content: message,
-                senderId: user ? user.id : 0,
-                senderName: user ? user.username : 'User',
-                timestamp: new Date().toISOString()
-            });
+            if (!user) return;
+
+            try {
+                // Save to Database
+                const [result] = await db.execute(
+                    'INSERT INTO messages (chat_id, sender_id, message) VALUES (?, ?, ?)',
+                    [chatId, user.id, message]
+                );
+
+                // Broadcast to Room
+                io.to(chatId).emit('receive_message', {
+                    id: result.insertId,
+                    chatId: parseInt(chatId),
+                    message: message, // Standardize naming to match Message.fromJson
+                    senderId: user.id,
+                    senderName: user.username,
+                    createdAt: new Date().toISOString()
+                });
+            } catch (error) {
+                console.error('Error saving socket message:', error);
+            }
         });
 
         socket.on('disconnect', () => {
