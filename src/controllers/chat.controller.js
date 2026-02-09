@@ -295,7 +295,7 @@ exports.getChatDetails = async (req, res) => {
 
     try {
         const [members] = await db.execute(
-            `SELECT u.username, u.id 
+            `SELECT u.username, u.id, u.avatar_url, u.last_active 
              FROM chat_members cm 
              JOIN users u ON cm.user_id = u.id 
              WHERE cm.chat_id = ? AND cm.user_id != ?`,
@@ -310,6 +310,8 @@ exports.getChatDetails = async (req, res) => {
         res.json({
             username: members[0].username,
             id: members[0].id,
+            avatar_url: members[0].avatar_url,
+            last_active: members[0].last_active,
             isGroup: members.length > 1
         });
     } catch (error) {
