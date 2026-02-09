@@ -281,17 +281,26 @@ exports.deleteChat = async (req, res) => {
             return res.status(403).json({ message: 'Not a member of this chat' });
         }
 
-        // Just remove the membership for this user (like Messenger archive/delete)
-        // OR delete the entire chat if it's a DM and the user wants to clear it.
-        // For simplicity, we'll delete the membership. If no members left, delete messages.
+        // Delete the membership
         await db.execute('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?', [chatId, userId]);
+        
+        // If it was a group and the user was the last member, or if it was a DM, 
+        // we might want to check if any members are left.
+        const [remaining] = await db.execute('SELECT COUNT(*) as count FROM chat_members WHERE chat_id = ?', [chatId]);
+        
+        if (remaining[0].count === 0) {
+            // No members left, delete the chat and its messages
+            await db.execute('DELETE FROM messages WHERE chat_id = ?', [chatId]);
+            await db.execute('DELETE FROM chats WHERE id = ?', [chatId]);
+        }
 
-        res.json({ message: 'Conversation deleted from your list' });
+        res.json({ message: 'Conversation deleted successfully' });
     } catch (error) {
         console.error('Error deleting chat:', error);
         res.status(500).json({ message: 'Error deleting conversation' });
     }
 };
+
 
 exports.deleteMessage = async (req, res) => {
     const { messageId } = req.params;
