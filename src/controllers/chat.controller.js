@@ -66,45 +66,53 @@ exports.listChats = async (req, res) => {
     const userId = req.user.id;
 
     try {
-        // Fetch chats where the user is a member
-        const [rows] = await db.execute(
-            `SELECT c.id, c.created_at, c.name AS group_name,
-                    u.id AS partner_id, u.username AS partner_username,
-                    m.message AS last_message, m.created_at AS last_message_time
+        // First, get all chats the user is a member of
+        const [chatRows] = await db.execute(
+            `SELECT DISTINCT c.id, c.created_at, c.name AS group_name
              FROM chats c
-             JOIN chat_members cm1 ON c.id = cm1.chat_id
-             LEFT JOIN chat_members cm2 ON c.id = cm2.chat_id AND cm2.user_id != ?
-             LEFT JOIN users u ON cm2.user_id = u.id
-             LEFT JOIN (
-                 SELECT m1.*
-                 FROM messages m1
-                 JOIN (
-                     SELECT chat_id, MAX(created_at) AS max_date
-                     FROM messages
-                     GROUP BY chat_id
-                 ) m2 ON m1.chat_id = m2.chat_id AND m1.created_at = m2.max_date
-             ) m ON c.id = m.chat_id
-             WHERE cm1.user_id = ?
-             GROUP BY c.id
-             ORDER BY m.created_at DESC`,
-            [userId, userId]
+             JOIN chat_members cm ON c.id = cm.chat_id
+             WHERE cm.user_id = ?
+             ORDER BY c.created_at DESC`,
+            [userId]
         );
 
-        // Format the result
-        const chats = rows.map(row => {
-            // If group_name exists, it's a group. If not, it's a DM (use partner name).
-            // For groups, partnerUsername might be one of the members, which is fine for avatar, 
-            // but title should be group name.
-            const isGroup = row.group_name !== null;
+        // For each chat, get additional details
+        const chats = await Promise.all(chatRows.map(async (chat) => {
+            // Get last message
+            const [lastMsg] = await db.execute(
+                `SELECT message, created_at 
+                 FROM messages 
+                 WHERE chat_id = ? 
+                 ORDER BY created_at DESC 
+                 LIMIT 1`,
+                [chat.id]
+            );
+
+            // Get partner info (for DMs) or first member (for groups to show avatar)
+            const [partnerRows] = await db.execute(
+                `SELECT u.id, u.username 
+                 FROM chat_members cm 
+                 JOIN users u ON cm.user_id = u.id 
+                 WHERE cm.chat_id = ? AND cm.user_id != ? 
+                 LIMIT 1`,
+                [chat.id, userId]
+            );
+
+            const isGroup = chat.group_name !== null;
+            const partner = partnerRows.length > 0 ? partnerRows[0] : null;
+
             return {
-                id: row.id,
+                id: chat.id,
                 isGroup: isGroup,
-                partnerId: row.partner_id, // Might be one of the members
-                partnerUsername: isGroup ? row.group_name : row.partner_username,
-                lastMessage: row.last_message || 'Start a conversation',
-                lastMessageTime: row.last_message_time || row.created_at
+                partnerId: partner?.id || null,
+                partnerUsername: isGroup ? chat.group_name : (partner?.username || 'Unknown'),
+                lastMessage: lastMsg.length > 0 ? lastMsg[0].message : 'Start a conversation',
+                lastMessageTime: lastMsg.length > 0 ? lastMsg[0].created_at : chat.created_at
             };
-        });
+        }));
+
+        // Sort by last message time
+        chats.sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
 
         res.json(chats);
     } catch (error) {
