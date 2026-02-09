@@ -47,6 +47,34 @@ module.exports = (io) => {
             }
         });
 
+        socket.on('mark_as_read', async (data) => {
+            const { chatId } = data;
+            if (!user) return;
+            try {
+                await db.execute(
+                    'UPDATE messages SET is_read = 1 WHERE chat_id = ? AND sender_id != ?',
+                    [chatId, user.id]
+                );
+                io.to(chatId).emit('messages_read', { chatId, userId: user.id });
+            } catch (error) {
+                console.error('Error marking messages as read:', error);
+            }
+        });
+
+        socket.on('react_message', async (data) => {
+            const { messageId, reaction, chatId } = data;
+            if (!user) return;
+            try {
+                await db.execute(
+                    'INSERT INTO message_reactions (message_id, user_id, reaction) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE reaction = ?',
+                    [messageId, user.id, reaction, reaction]
+                );
+                io.to(chatId).emit('receive_reaction', { messageId, userId: user.id, reaction });
+            } catch (error) {
+                console.error('Error reacting to message via socket:', error);
+            }
+        });
+
         socket.on('disconnect', () => {
             console.log('User disconnected:', socket.id);
         });

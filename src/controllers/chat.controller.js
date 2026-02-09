@@ -48,13 +48,20 @@ exports.fetchMessages = async (req, res) => {
         }
 
         const [messages] = await db.execute(
-            `SELECT m.id, m.message, m.sender_id, m.created_at, u.username as sender_name 
+            `SELECT m.id, m.message, m.sender_id, m.created_at, m.is_read, u.username as sender_name 
              FROM messages m 
              JOIN users u ON m.sender_id = u.id 
              WHERE m.chat_id = ? 
              ORDER BY m.created_at ASC`,
             [chatId]
         );
+
+        // Mark as read if user is opening the chat
+        await db.execute(
+            'UPDATE messages SET is_read = TRUE WHERE chat_id = ? AND sender_id != ?',
+            [chatId, userId]
+        );
+
 
         res.json(messages);
     } catch (error) {
@@ -78,15 +85,16 @@ exports.listChats = async (req, res) => {
 
         // For each chat, get additional details
         const chats = await Promise.all(chatRows.map(async (chat) => {
-            // Get last message
+            // Get last message with read status
             const [lastMsg] = await db.execute(
-                `SELECT message, created_at 
+                `SELECT message, created_at, sender_id, is_read 
                  FROM messages 
                  WHERE chat_id = ? 
                  ORDER BY created_at DESC 
                  LIMIT 1`,
                 [chat.id]
             );
+
 
             // Get partner info (for DMs) or first member (for groups to show avatar)
             const [partnerRows] = await db.execute(
@@ -98,19 +106,23 @@ exports.listChats = async (req, res) => {
                 [chat.id, userId]
             );
 
-            const isGroup = chat.group_name !== null;
+            const isGroup = chat.group_name !== null && chat.type !== 'public';
             const partner = partnerRows.length > 0 ? partnerRows[0] : null;
 
             return {
                 id: chat.id,
                 isGroup: isGroup,
+                type: chat.type,
                 partnerId: partner?.id || null,
-                partnerUsername: isGroup ? chat.group_name : (partner?.username || 'Unknown'),
+                partnerUsername: chat.type === 'public' ? 'World Chat' : (isGroup ? chat.group_name : (partner?.username || 'Unknown')),
                 partnerAvatarUrl: partner?.avatar_url || null,
                 partnerLastActive: partner?.last_active || null,
                 lastMessage: lastMsg.length > 0 ? lastMsg[0].message : 'Start a conversation',
-                lastMessageTime: lastMsg.length > 0 ? lastMsg[0].created_at : chat.created_at
+                lastMessageTime: lastMsg.length > 0 ? lastMsg[0].created_at : chat.created_at,
+                lastMessageSenderId: lastMsg.length > 0 ? lastMsg[0].sender_id : null,
+                lastMessageIsRead: lastMsg.length > 0 ? (lastMsg[0].is_read === 1 || lastMsg[0].is_read === true) : true
             };
+
         }));
 
         // Sort by last message time
@@ -126,8 +138,28 @@ exports.listChats = async (req, res) => {
 exports.createChat = async (req, res) => {
     const userId = req.user.id;
     const { targetUserId } = req.body;
+
+    if (!targetUserId) return res.status(400).json({ message: 'targetUserId required' });
+
     try {
-        const [chatResult] = await db.execute('INSERT INTO chats () VALUES ()');
+        // Check for existing DM
+        const [existing] = await db.execute(
+            `SELECT c.id 
+             FROM chats c
+             JOIN chat_members cm1 ON c.id = cm1.chat_id
+             JOIN chat_members cm2 ON c.id = cm2.chat_id
+             WHERE c.type = 'dm' 
+             AND cm1.user_id = ? 
+             AND cm2.user_id = ?`,
+            [userId, targetUserId]
+        );
+
+        if (existing.length > 0) {
+            return res.json({ message: 'Chat resumed.', id: existing[0].id });
+        }
+
+        // Create new DM
+        const [chatResult] = await db.execute("INSERT INTO chats (type) VALUES ('dm')");
         const chatId = chatResult.insertId;
 
         await db.execute(
@@ -135,12 +167,10 @@ exports.createChat = async (req, res) => {
             [chatId, userId]
         );
 
-        if (targetUserId) {
-            await db.execute(
-                'INSERT INTO chat_members (chat_id, user_id) VALUES (?, ?)',
-                [chatId, targetUserId]
-            );
-        }
+        await db.execute(
+            'INSERT INTO chat_members (chat_id, user_id) VALUES (?, ?)',
+            [chatId, targetUserId]
+        );
 
         res.status(201).json({ message: 'Chat created.', id: chatId });
     } catch (error) {
@@ -157,35 +187,7 @@ exports.createGroup = async (req, res) => {
     }
 
     try {
-        // Create chat with is_group flag (assuming column exists or we just treat it as chat)
-        // Check schema first, if no is_group, we might need to add it or infer it.
-        // For now, let's assume standard chat table.
-        // If I can't add columns easily, I'll allow null name for DM and name for Group.
-        // Wait, the current `chats` table seems to have only id and created_at.
-        // I should probably add `name` to `chats` table.
-
-        // Let's try to add the column if it doesn't exist, or just use a separate details table?
-        // No, keep it simple. I'll just insert into chats.
-        // If I can't modify schema, I will store group name in a way that `listChats` can retrieve it.
-        // `listChats` joins `chat_members` so maybe I can't store name on `chats` without migration.
-
-        // **Critial**: The user said "able to name group chat and edit it".
-        // This implies I need valid storage for the name.
-        // I will assume the `chats` table has a `name` column or I will add it using raw SQL in a migration step if I could.
-        // Since I can't run migrations easily, I will try to see if I can add the column via a query in this function (hacky but works for this context).
-
-        // Better: I will use `ALTER TABLE chats ADD COLUMN name VARCHAR(255) NULL` in a separate `init` step?
-        // Or just try to insert and if it fails, I know.
-        // Actually, the user has `railway` running.
-        // I'll assume I can run a query to add the column.
-
-        try {
-            await db.execute('ALTER TABLE chats ADD COLUMN name VARCHAR(255) NULL');
-        } catch (e) {
-            // Ignore if exists
-        }
-
-        const [chatResult] = await db.execute('INSERT INTO chats (name) VALUES (?)', [name]);
+        const [chatResult] = await db.execute("INSERT INTO chats (name, type) VALUES (?, 'group')", [name]);
         const chatId = chatResult.insertId;
 
         // Add creator
@@ -205,29 +207,24 @@ exports.createGroup = async (req, res) => {
 
 exports.getPublicChat = async (req, res) => {
     try {
-        // Find public chat
-        const [rows] = await db.execute("SELECT id FROM chats WHERE name = 'XAIE Public' LIMIT 1");
+        // World Chat is unique
+        const [rows] = await db.execute("SELECT id FROM chats WHERE type = 'public' LIMIT 1");
 
         let chatId;
         if (rows.length > 0) {
             chatId = rows[0].id;
         } else {
-            // Create public chat if not exists
-            const [result] = await db.execute("INSERT INTO chats (name) VALUES ('XAIE Public')");
+            const [result] = await db.execute("INSERT INTO chats (name, type) VALUES ('World Chat', 'public')");
             chatId = result.insertId;
         }
 
-        // Ensure user is a member (silently add if not)
-        try {
-            await db.execute('INSERT IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)', [chatId, req.user.id]);
-        } catch (e) {
-            // Ignore duplicate error if IGNORE doesn't work as expected (MySQL usually handles IGNORE well)
-        }
+        // Everyone is automatically a member of World Chat
+        await db.execute('INSERT IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)', [chatId, req.user.id]);
 
         res.json({ id: chatId });
     } catch (error) {
         console.error('Error getting public chat:', error);
-        res.status(500).json({ message: 'Error accessing public chat' });
+        res.status(500).json({ message: 'Error accessing world chat' });
     }
 };
 
@@ -266,6 +263,33 @@ exports.joinChat = async (req, res) => {
         res.json({ message: 'Joined chat.' });
     } catch (error) {
         res.status(500).json({ message: 'Error joining chat.', error: error.message });
+    }
+};
+
+exports.deleteChat = async (req, res) => {
+    const { chatId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        // Verify membership first
+        const [membership] = await db.execute(
+            'SELECT * FROM chat_members WHERE chat_id = ? AND user_id = ?',
+            [chatId, userId]
+        );
+
+        if (membership.length === 0) {
+            return res.status(403).json({ message: 'Not a member of this chat' });
+        }
+
+        // Just remove the membership for this user (like Messenger archive/delete)
+        // OR delete the entire chat if it's a DM and the user wants to clear it.
+        // For simplicity, we'll delete the membership. If no members left, delete messages.
+        await db.execute('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?', [chatId, userId]);
+
+        res.json({ message: 'Conversation deleted from your list' });
+    } catch (error) {
+        console.error('Error deleting chat:', error);
+        res.status(500).json({ message: 'Error deleting conversation' });
     }
 };
 

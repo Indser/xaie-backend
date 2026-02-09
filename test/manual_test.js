@@ -22,17 +22,10 @@ async function testBackend() {
     const loginRes = await fetch(`${BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: signupData.username || 'testuser', password: 'password123' }) // Note: signup doesn't return username, using logic
+        body: JSON.stringify({ username: signupData.username || 'testuser', password: 'password123' })
     });
-
-    // Fix: use the username we just created
-    const loginRes2 = await fetch(`${BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: JSON.parse(signupRes.config?.data || signupRes.body || '{}').username || ('testuser_' + Date.now()), password: 'password123' })
-    });
-    // Actually simpler: let's just use a fixed username for the test run or capture it better.
-    // Re-doing logical flow properly below.
+    const loginData = await loginRes.json();
+    console.log('Login Response:', loginRes.status, loginData);
 }
 
 (async () => {

@@ -16,8 +16,7 @@ module.exports = async (req, res, next) => {
         // Update last_active timestamp (non-blocking)
         db.query('UPDATE users SET last_active = NOW() WHERE id = ?', [decoded.id])
             .catch(err => {
-                // Ignore error if column missing, will be added by controller
-                if (err.code !== 'ER_BAD_FIELD_ERROR') console.error('Error updating last_active:', err.message);
+                console.error('Error updating last_active:', err.message);
             });
 
         next();

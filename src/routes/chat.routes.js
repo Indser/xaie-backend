@@ -21,5 +21,6 @@ router.post('/send', controller.sendMessage);            // send a message
 // Parameterized Routes (must be last)
 router.get('/:chatId', controller.fetchMessages); // fetch messages for a chat
 router.put('/:chatId', controller.updateChat);    // update chat name
+router.delete('/:chatId', controller.deleteChat); // delete/leave chat
 
 module.exports = router;

@@ -9,6 +9,9 @@ const chatRoutes = require('./routes/chat.routes');
 const socketHandler = require('./sockets/chat.socket');
 
 const userRoutes = require('./routes/user.routes');
+const updateRoutes = require('./routes/update.routes');
+const path = require('path');
+
 
 const app = express();
 const server = http.createServer(app);
@@ -28,6 +31,12 @@ app.use('/chat', chatRoutes);
 console.log('Chat routes registered');
 app.use('/users', userRoutes);
 console.log('User routes registered');
+app.use('/update', updateRoutes);
+console.log('Update routes registered');
+
+// Serve APKs from uploads/apks directory
+app.use('/apks', express.static(path.join(__dirname, '../uploads/apks')));
+
 
 // Socket.io
 try {
