@@ -90,7 +90,7 @@ exports.listChats = async (req, res) => {
 
             // Get partner info (for DMs) or first member (for groups to show avatar)
             const [partnerRows] = await db.execute(
-                `SELECT u.id, u.username 
+                `SELECT u.id, u.username, u.avatar_url, u.last_active 
                  FROM chat_members cm 
                  JOIN users u ON cm.user_id = u.id 
                  WHERE cm.chat_id = ? AND cm.user_id != ? 
@@ -106,6 +106,8 @@ exports.listChats = async (req, res) => {
                 isGroup: isGroup,
                 partnerId: partner?.id || null,
                 partnerUsername: isGroup ? chat.group_name : (partner?.username || 'Unknown'),
+                partnerAvatarUrl: partner?.avatar_url || null,
+                partnerLastActive: partner?.last_active || null,
                 lastMessage: lastMsg.length > 0 ? lastMsg[0].message : 'Start a conversation',
                 lastMessageTime: lastMsg.length > 0 ? lastMsg[0].created_at : chat.created_at
             };
